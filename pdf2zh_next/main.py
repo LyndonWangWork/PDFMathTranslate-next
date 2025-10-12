@@ -101,11 +101,12 @@ async def main() -> int:
 def cli():
     # Ensure PyInstaller-frozen multiprocessing works reliably on macOS
     import multiprocessing as mp
-    try:
-        mp.set_start_method("spawn", force=True)
-    except RuntimeError:
-        pass
-    mp.freeze_support()
+    if sys.platform == "darwin":
+        try:
+            mp.set_start_method("spawn", force=True)
+        except RuntimeError:
+            pass
+        mp.freeze_support()
 
     # Ensure tiktoken plugins are importable in frozen runtime
     try:

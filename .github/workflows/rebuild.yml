@@ -340,7 +340,7 @@ jobs:
 
   upload-release-asset:
     name: Upload Asset to Release
-    needs: [test, test-win64-exe, get-latest-release, build-win64-exe]
+    needs: [test, test-win64-exe, get-latest-release, build-win64-exe, build-macos-exe]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -362,8 +362,118 @@ jobs:
           find ./pdf2zh -name "offline_assets_*.zip" -type f -print -delete
           
           zip -9qr "pdf2zh-${{ needs.get-latest-release.outputs.tag }}-BabelDOC-v${{ needs.build-win64-exe.outputs.babeldoc_version }}-win64.zip" ./pdf2zh/*
+
+      - name: Download macOS artifacts (arm64)
+        uses: actions/download-artifact@v5
+        with:
+          name: macos-arm64-packages
+          path: ./macos_arm64
+
+      - name: Download macOS artifacts (x86_64)
+        uses: actions/download-artifact@v5
+        with:
+          name: macos-x86_64-packages
+          path: ./macos_x86_64
       - name: Upload to release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release upload ${{ needs.get-latest-release.outputs.tag }} ./*.zip --clobber 
+
+  build-macos-exe:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            runner: macos-14
+          - arch: x86_64
+            runner: macos-13
+    runs-on: ${{ matrix.runner }}
+    needs:
+      - get-latest-release
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.get-latest-release.outputs.tag }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Create venv
+        run: |
+          python -m venv .venv
+          source .venv/bin/activate
+          python -m pip install -v -U pip wheel setuptools
+
+      - name: Install build deps (${{ matrix.arch }})
+        run: |
+          source .venv/bin/activate
+          python -m pip install -v -U pyinstaller
+          python -m pip install -v -U --no-binary=peewee "peewee>=3.17.8"
+          python -m pip install -v -U tiktoken
+          python -m pip install -v -U --only-binary=:all: --no-binary=peewee,untokenize .
+
+      - name: Warmup optional assets (${{ matrix.arch }})
+        run: |
+          source .venv/bin/activate
+          if [ "${{ matrix.arch }}" = "x86_64" ]; then
+            python -m pip install -U --no-binary=untokenize babeldoc || true
+          fi
+          babeldoc --version || true
+          babeldoc --warmup || true
+
+      - name: Build onefile (${{ matrix.arch }})
+        run: |
+          source .venv/bin/activate
+          pyinstaller --onefile -n pdf2zh \
+            --collect-all babeldoc \
+            --collect-all rapidocr_onnxruntime \
+            --collect-all gradio \
+            --collect-all gradio_pdf \
+            --collect-all tiktoken \
+            --collect-all tiktoken_ext \
+            --hidden-import tiktoken_ext.openai_public \
+            --collect-data tiktoken \
+            --collect-data langcodes \
+            --collect-data language_data \
+            --collect-data groovy \
+            --collect-data safehttpx \
+            --collect-data gradio_client \
+            --collect-data gradio \
+            --collect-data gradio_pdf \
+            --collect-data pdf2zh_next \
+            --collect-submodules tiktoken \
+            --collect-submodules pdf2zh_next.translator.translator_impl \
+            pdf2zh_next/main.py
+          chmod +x dist/pdf2zh
+
+      - name: Package with offline assets (${{ matrix.arch }})
+        run: |
+          source .venv/bin/activate
+          pkg_dir="pkg/pdf2zh-macos-${{ matrix.arch }}"
+          mkdir -p "$pkg_dir"
+          cp dist/pdf2zh "$pkg_dir/"
+          babeldoc --generate-offline-assets "$pkg_dir"
+          (cd pkg && zip -9qr "with-assets-macos-${{ matrix.arch }}.zip" "$(basename "$pkg_dir")")
+
+      - name: Package without offline assets (${{ matrix.arch }})
+        run: |
+          pkg_dir="pkg/pdf2zh-macos-${{ matrix.arch }}"
+          pkg_dir_no_assets="pkg/pdf2zh-macos-${{ matrix.arch }}-no-assets"
+          rm -rf "$pkg_dir_no_assets"
+          mkdir -p "$pkg_dir_no_assets"
+          rsync -a "$pkg_dir/" "$pkg_dir_no_assets/"
+          find "$pkg_dir_no_assets" -name "offline_assets_*.zip" -type f -delete || true
+          (cd pkg && zip -9qr "macos-${{ matrix.arch }}.zip" "$(basename "$pkg_dir_no_assets")")
+
+      - name: Upload package artifacts (${{ matrix.arch }})
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-${{ matrix.arch }}-packages
+          path: |
+            pkg/with-assets-macos-${{ matrix.arch }}.zip
+            pkg/macos-${{ matrix.arch }}.zip

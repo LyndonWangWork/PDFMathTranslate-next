@@ -25,6 +25,7 @@ jobs:
       PIP_DISABLE_PIP_VERSION_CHECK: "1"
       PIP_NO_PYTHON_VERSION_WARNING: "1"
       PIP_ONLY_BINARY: ":all:"
+      PIP_CONSTRAINT: constraints-macos.txt
       MACOSX_DEPLOYMENT_TARGET: "11.0"
       PYTHONUTF8: "1"
     steps:
@@ -40,17 +41,17 @@ jobs:
         run: |
           python -m venv .venv
           source .venv/bin/activate
-          python -m pip install -v -U pip wheel setuptools
+          python -m pip install -v -U -c constraints-macos.txt pip wheel setuptools
 
       - name: Install build deps (${{ matrix.arch }})
         run: |
           source .venv/bin/activate
-          python -m pip install -v -U pyinstaller
+          python -m pip install -v -U -c constraints-macos.txt pyinstaller
           # 先为 peewee 放开二进制轮子限制（peewee 无 macOS 轮子时会解析失败）
-          python -m pip install -v -U --no-binary=peewee "peewee>=3.17.8"
+          python -m pip install -v -U -c constraints-macos.txt --no-binary=peewee "peewee>=3.17.8"
           # 安装项目：对其他依赖仍优先二进制轮子，仅对 peewee 允许 sdist
-          python -m pip install -v -U tiktoken
-          python -m pip install -v -U --only-binary=:all: --no-binary=peewee,untokenize .
+          python -m pip install -v -U -c constraints-macos.txt tiktoken
+          python -m pip install -v -U -c constraints-macos.txt --only-binary=:all: --no-binary=peewee,untokenize .
 
       - name: Diagnose tiktoken plugins (${{ matrix.arch }})
         run: |
@@ -89,7 +90,7 @@ jobs:
         run: |
           source .venv/bin/activate
           if [ "${{ matrix.arch }}" = "x86_64" ]; then
-            python -m pip install -U --no-binary=untokenize babeldoc || true
+            python -m pip install -U -c constraints-macos.txt --no-binary=untokenize babeldoc || true
           fi
           babeldoc --version || true
           babeldoc --warmup || true
@@ -118,7 +119,6 @@ jobs:
             --collect-submodules tiktoken \
             --collect-submodules pdf2zh_next.translator.translator_impl \
             pdf2zh_next/main.py
-          chmod +x dist/pdf2zh
           file dist/pdf2zh
           otool -L dist/pdf2zh | sed -n '1,120p'
 
@@ -133,32 +133,6 @@ jobs:
           rm -rf "$HOME/.cache/babeldoc" || true
           ./dist/pdf2zh ./test/file/translate.cli.plain.text.pdf --output ./test/file
 
-      - name: Get BabelDOC version (${{ matrix.arch }})
-        id: get-babeldoc-version
-        run: |
-          source .venv/bin/activate
-          python -m pip show BabelDOC | awk '/Version/{print "version=" $2}' >> $GITHUB_OUTPUT
-
-      - name: Package with offline assets (${{ matrix.arch }})
-        run: |
-          source .venv/bin/activate
-          pkg_dir="pkg/pdf2zh-macos-${{ matrix.arch }}"
-          mkdir -p "$pkg_dir"
-          cp dist/pdf2zh "$pkg_dir/"
-          # 生成离线资源包到打包目录
-          babeldoc --generate-offline-assets "$pkg_dir"
-          (cd pkg && zip -9qr "pdf2zh-${{ github.sha }}-BabelDOC-v${{ steps.get-babeldoc-version.outputs.version }}-with-assets-macos-${{ matrix.arch }}.zip" "$(basename "$pkg_dir")")
-
-      - name: Package without offline assets (${{ matrix.arch }})
-        run: |
-          pkg_dir="pkg/pdf2zh-macos-${{ matrix.arch }}"
-          pkg_dir_no_assets="pkg/pdf2zh-macos-${{ matrix.arch }}-no-assets"
-          rm -rf "$pkg_dir_no_assets"
-          mkdir -p "$pkg_dir_no_assets"
-          rsync -a "$pkg_dir/" "$pkg_dir_no_assets/"
-          find "$pkg_dir_no_assets" -name "offline_assets_*.zip" -type f -delete || true
-          (cd pkg && zip -9qr "pdf2zh-${{ github.sha }}-BabelDOC-v${{ steps.get-babeldoc-version.outputs.version }}-macos-${{ matrix.arch }}.zip" "$(basename "$pkg_dir_no_assets")")
-
       - name: Upload test results (${{ matrix.arch }})
         uses: actions/upload-artifact@v4
         with:
@@ -171,12 +145,59 @@ jobs:
           name: pdf2zh-${{ matrix.arch }}
           path: dist/pdf2zh
 
-      - name: Upload package artifacts (${{ matrix.arch }})
+  merge-universal2:
+    name: macOS universal2 merge
+    needs: build-macos
+    runs-on: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download arm64 artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: pdf2zh-arm64
+          path: artifacts/arm64
+
+      - name: Download x86_64 artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: pdf2zh-x86_64
+          path: artifacts/x86_64
+
+      - name: Create universal2 binary with lipo
+        run: |
+          mkdir -p dist
+          lipo -create artifacts/arm64/pdf2zh artifacts/x86_64/pdf2zh -output dist/pdf2zh
+          chmod +x dist/pdf2zh
+          file dist/pdf2zh
+          lipo -info dist/pdf2zh
+          otool -L dist/pdf2zh | sed -n '1,120p'
+
+      - name: Smoke test universal2 binary
+        run: |
+          ./dist/pdf2zh --version
+
+      - name: E2E test (universal2) - translate CLI samples
+        run: |
+          ./dist/pdf2zh ./test/file/translate.cli.plain.text.pdf --output ./test/file
+          ./dist/pdf2zh ./test/file/translate.cli.text.with.figure.pdf --output ./test/file
+
+      - name: Clear cache and test again (universal2)
+        run: |
+          rm -rf "$HOME/.cache/babeldoc" || true
+          ./dist/pdf2zh ./test/file/translate.cli.plain.text.pdf --output ./test/file
+
+      - name: Upload test results (universal2)
         uses: actions/upload-artifact@v4
         with:
-          name: macos-${{ matrix.arch }}-packages
-          path: |
-            pkg/pdf2zh-${{ github.sha }}-BabelDOC-v${{ steps.get-babeldoc-version.outputs.version }}-with-assets-macos-${{ matrix.arch }}.zip
-            pkg/pdf2zh-${{ github.sha }}-BabelDOC-v${{ steps.get-babeldoc-version.outputs.version }}-macos-${{ matrix.arch }}.zip
- 
+          name: test-results-universal2
+          path: ./test/file/
+
+      - name: Upload universal2 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pdf2zh-macos-universal2
+          path: dist/pdf2zh
+
 

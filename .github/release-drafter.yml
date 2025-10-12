@@ -54,6 +54,10 @@ template: |
 
   - `pdf2zh-v$RESOLVED_VERSION-BabelDOC-<version>-win64.zip`: pdf2zh **without** assets(font, model, etc.)
   - `pdf2zh-v$RESOLVED_VERSION-BabelDOC-<version>-with-assets-win64.zip`: (**Recommended**) pdf2zh **with** assets(font, model, etc.)
+  - `pdf2zh-v$RESOLVED_VERSION-BabelDOC-<version>-macos-arm64.zip`: macOS arm64 build without assets
+  - `pdf2zh-v$RESOLVED_VERSION-BabelDOC-<version>-with-assets-macos-arm64.zip`: macOS arm64 build with assets
+  - `pdf2zh-v$RESOLVED_VERSION-BabelDOC-<version>-macos-x86_64.zip`: macOS x86_64 build without assets
+  - `pdf2zh-v$RESOLVED_VERSION-BabelDOC-<version>-with-assets-macos-x86_64.zip`: macOS x86_64 build with assets
 
   > [!NOTE]
   > **What is the difference between `pdf2zh-v$RESOLVED_VERSION-BabelDOC-<version>-with-assets-win64.zip` and `pdf2zh-v$RESOLVED_VERSION-BabelDOC-<version>-win64.zip`?**
@@ -61,3 +65,4 @@ template: |
   > - If you are downloading and using PDFMathTranslate for the first time, it is recommended to download `pdf2zh-v$RESOLVED_VERSION-BabelDOC-<version>-with-assets-win64.zip`.
   > - The `pdf2zh-v$RESOLVED_VERSION-BabelDOC-<version>-with-assets-win64.zip` includes resource files (such as fonts and models) compared to `pdf2zh-v$RESOLVED_VERSION-BabelDOC-<version>-win64.zip`.
   > - The version without assets will also dynamically download resources when running, but the download may fail due to network issues. So starting from the second time, you can use this version. (However, offline environments should still use the version with resource packages)
+  > - macOS builds follow the same rule: prefer the `with-assets` variant for the first run, choose the non-assets variant later if your network is stable.
