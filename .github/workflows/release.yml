@@ -710,12 +710,14 @@ jobs:
 
       - name: Create venv
         run: |
+          unset PIP_CONSTRAINT || true
           python -m venv .venv
           source .venv/bin/activate
           python -m pip install -v -U pip wheel setuptools
 
       - name: Install build deps (${{ matrix.arch }})
         run: |
+          unset PIP_CONSTRAINT || true
           source .venv/bin/activate
           python -m pip install -v -U pyinstaller
           python -m pip install -v -U --no-binary=peewee "peewee>=3.17.8"
@@ -724,6 +726,7 @@ jobs:
 
       - name: Warmup optional assets (${{ matrix.arch }})
         run: |
+          unset PIP_CONSTRAINT || true
           source .venv/bin/activate
           if [ "${{ matrix.arch }}" = "x86_64" ]; then
             python -m pip install -U --no-binary=untokenize babeldoc || true
