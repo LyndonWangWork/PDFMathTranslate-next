@@ -9,5 +9,3 @@ def test_profile_flags_default():
     assert settings.basic.profile is False
     assert settings.basic.cprofile is False
     assert isinstance(settings.basic.cprofile_topn, int)
-
-

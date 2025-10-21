@@ -1,13 +1,12 @@
 import asyncio
 import logging
-import logging.handlers
 import multiprocessing
 import multiprocessing.connection
 import multiprocessing.queues
 import queue
 import threading
-import traceback
 import time
+import traceback
 from collections.abc import AsyncGenerator
 from contextlib import nullcontext
 from functools import partial
@@ -208,7 +207,9 @@ def _translate_wrapper(
                             ps = pstats.Stats(prof).sort_stats("cumulative")
                             ps.print_stats(int(topn))
                         except Exception:
-                            logger.warning("Failed to print cProfile stats", exc_info=True)
+                            logger.warning(
+                                "Failed to print cProfile stats", exc_info=True
+                            )
             else:
                 asyncio.run(translate_wrapper_async())
         except Exception as e:
@@ -558,8 +559,8 @@ async def do_translate_async_stream(
         # when debug, also honor cProfile flag (auto-enabled in main when debug)
         if getattr(settings.basic, "cprofile", False):
             import cProfile
-            import pstats
             import io
+            import pstats
 
             async def _profiled_debug_translate():
                 pr = cProfile.Profile()
@@ -582,7 +583,9 @@ async def do_translate_async_stream(
 
             translate_func = _profiled_debug_translate
         else:
-            translate_func = partial(babeldoc_translate, translation_config=babeldoc_config)
+            translate_func = partial(
+                babeldoc_translate, translation_config=babeldoc_config
+            )
     else:
         logger.info("translate in subprocess")
 
@@ -664,7 +667,11 @@ async def do_translate_file_async(
         # 开始翻译
         with progress_context:
             # per-file profiling section
-            ctx_mgr = tracer.section("translate_file", file=str(file)) if (tracer and tracer.enabled) else None
+            ctx_mgr = (
+                tracer.section("translate_file", file=str(file))
+                if (tracer and tracer.enabled)
+                else None
+            )
             _ctx = ctx_mgr if ctx_mgr else nullcontext()
             with _ctx:
                 try:

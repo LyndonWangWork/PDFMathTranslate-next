@@ -9,12 +9,13 @@ import asyncio
 import logging
 import os
 import sys
+from datetime import datetime
 from pathlib import Path
 
 from pdf2zh_next.config import ConfigManager
 from pdf2zh_next.high_level import do_translate_file_async
-from pdf2zh_next.utils.profiler import PerformanceTracer, set_global_tracer
-from datetime import datetime
+from pdf2zh_next.utils.profiler import PerformanceTracer
+from pdf2zh_next.utils.profiler import set_global_tracer
 
 __version__ = "2.6.4"
 
@@ -137,6 +138,7 @@ async def main() -> int:
 def cli():
     # Ensure PyInstaller-frozen multiprocessing works reliably on macOS
     import multiprocessing as mp
+
     if sys.platform == "darwin":
         try:
             mp.set_start_method("spawn", force=True)

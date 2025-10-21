@@ -3,21 +3,22 @@ from __future__ import annotations
 import json
 import threading
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+from dataclasses import field
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
-_global_tracer: "PerformanceTracer" | None = None
+_global_tracer: PerformanceTracer | None = None
 _global_lock = threading.Lock()
 
 
-def set_global_tracer(tracer: "PerformanceTracer") -> None:
+def set_global_tracer(tracer: PerformanceTracer) -> None:
     global _global_tracer
     with _global_lock:
         _global_tracer = tracer
 
 
-def get_global_tracer() -> "PerformanceTracer" | None:
+def get_global_tracer() -> PerformanceTracer | None:
     with _global_lock:
         return _global_tracer
 
@@ -25,7 +26,7 @@ def get_global_tracer() -> "PerformanceTracer" | None:
 @dataclass
 class PerformanceTracer:
     enabled: bool
-    output: Optional[Path] = None
+    output: Path | None = None
     _lock: threading.Lock = field(default_factory=threading.Lock, init=False)
     _agg: dict[str, float] = field(default_factory=dict, init=False)
 
@@ -36,13 +37,13 @@ class PerformanceTracer:
         tracer = self
 
         class _Ctx:
-            def __enter__(self_inner):
-                self_inner.t0 = tracer._now_ns()
-                self_inner.attrs = attrs
-                return self_inner
+            def __enter__(self):
+                self.t0 = tracer._now_ns()
+                self.attrs = attrs
+                return self
 
-            def __exit__(self_inner, exc_type, exc, tb):
-                dt_ms = (tracer._now_ns() - self_inner.t0) / 1e6
+            def __exit__(self, exc_type, exc, tb):
+                dt_ms = (tracer._now_ns() - self.t0) / 1e6
                 tracer.emit({"section": name, "duration_ms": dt_ms, **attrs})
 
         return _Ctx()
@@ -70,5 +71,3 @@ class PerformanceTracer:
     def summary_lines(self) -> list[str]:
         items = sorted(self._agg.items(), key=lambda x: -x[1])
         return [f"{name}: {ms:.1f} ms" for name, ms in items]
-
-
