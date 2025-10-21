@@ -12,6 +12,7 @@ from contextlib import nullcontext
 from functools import partial
 from logging.handlers import QueueHandler
 from pathlib import Path
+import re
 
 from babeldoc.format.pdf.high_level import async_translate as babeldoc_translate
 from babeldoc.format.pdf.translation_config import TranslationConfig as BabelDOCConfig
@@ -109,28 +110,63 @@ class SubprocessCrashError(TranslationError):
 logger = logging.getLogger(__name__)
 
 _STAGE_ZH_MAP = {
+    # 归一化后的 key -> 中文
     "layout": "版面分析",
     "doclayout": "版面分析",
+    "doc_layout": "版面分析",
     "ocr": "OCR识别",
+    "ocr_detect": "OCR识别",
     "translate": "翻译",
+    "translate_text": "翻译",
     "render": "渲染",
+    "compose_pdf": "渲染",
+    "build_pdf": "渲染",
+    "save": "保存",
     "split": "分段",
+    "page_split": "分段",
     "merge": "合并",
     "cache": "缓存",
+    "cache_lookup": "缓存",
     "table": "表格处理",
     "table_detection": "表格检测",
+    "detect_table": "表格检测",
     "glossary": "术语",
     "glossary_extract": "术语抽取",
     "prepare": "准备",
+    "preprocess": "预处理",
     "postprocess": "后处理",
+    "download_assets": "下载资源",
+    "prepare_assets": "准备资源",
+    # ====== Observed from JSONL (normalized) ======
+    "parse_pdf_and_create_intermediate_representation": "解析PDF并创建中间表示",
+    "detectscannedfile": "检测扫描文档",
+    "detect_scanned_file": "检测扫描文档",
+    "parse_page_layout": "解析页面版面",
+    "parse_paragraphs": "解析段落",
+    "parse_formulas_and_styles": "解析公式与样式",
+    "automatic_term_extraction": "自动术语抽取",
+    "translate_paragraphs": "翻译段落",
+    "typesetting": "排版",
+    "add_fonts": "添加字体",
+    "generate_drawing_instructions": "生成绘图指令",
+    "subset_font": "字体子集化",
+    "save_pdf": "保存PDF",
 }
+
+def _normalize_stage_key(text: str) -> str:
+    key = str(text).strip().lower()
+    # 将非字母数字全部归一为下划线，连续下划线压缩
+    key = re.sub(r"[^a-z0-9]+", "_", key)
+    key = re.sub(r"_+", "_", key).strip("_")
+    return key
+
 
 def _stage_to_zh(stage: str) -> str:
     try:
-        key = str(stage).lower()
+        norm = _normalize_stage_key(stage)
     except Exception:
         return str(stage)
-    return _STAGE_ZH_MAP.get(key, stage)
+    return _STAGE_ZH_MAP.get(norm, stage)
 
 
 def _translate_wrapper(

@@ -272,6 +272,20 @@ class SettingsModel(BaseModel):
         # Log the current translation engine being used
         engine_name = self.translate_engine_settings.translate_engine_type
         log.info(f"Using translation engine: {engine_name}")
+        # Emit a profiling event for startup-to-engine-selected duration if tracer available
+        try:
+            from pdf2zh_next.utils.profiler import get_global_tracer, get_process_start_time_ns
+            tracer = get_global_tracer()
+            t0 = get_process_start_time_ns()
+            if tracer and tracer.enabled and t0 is not None:
+                import time as _t
+                tracer.emit({
+                    "section": "startup_to_engine_selected",
+                    "stage": "启动到选择翻译引擎",
+                    "duration_ms": (_t.perf_counter_ns() - t0) / 1e6,
+                })
+        except Exception:
+            pass
 
         self.translate_engine_settings.validate_settings()
         if hasattr(self.translate_engine_settings, "transform"):

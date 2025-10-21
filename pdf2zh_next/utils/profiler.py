@@ -10,17 +10,60 @@ from typing import Any
 
 _global_tracer: PerformanceTracer | None = None
 _global_lock = threading.Lock()
+_process_start_ns: int | None = None
+_early_events: list[dict[str, Any]] = []
 
 
 def set_global_tracer(tracer: PerformanceTracer) -> None:
     global _global_tracer
     with _global_lock:
         _global_tracer = tracer
+        # flush any early buffered events
+        if _global_tracer and _global_tracer.enabled and _early_events:
+            for ev in _early_events:
+                try:
+                    _global_tracer.emit(ev)
+                except Exception:
+                    pass
+            _early_events.clear()
 
 
 def get_global_tracer() -> PerformanceTracer | None:
     with _global_lock:
         return _global_tracer
+
+
+def set_process_start_time_ns(ns: int) -> None:
+    global _process_start_ns
+    with _global_lock:
+        if _process_start_ns is None:
+            _process_start_ns = ns
+
+
+def get_process_start_time_ns() -> int | None:
+    with _global_lock:
+        return _process_start_ns
+
+
+def emit_or_buffer(obj: dict[str, Any]) -> None:
+    """Emit via tracer if available, else buffer to flush later."""
+    with _global_lock:
+        tracer = _global_tracer
+        if tracer and tracer.enabled:
+            try:
+                tracer.emit(obj)
+                return
+            except Exception:
+                pass
+        _early_events.append(obj)
+
+
+def emit_startup_timing(section: str, start_ns: int, end_ns: int, stage: str | None = None) -> None:
+    duration_ms = (end_ns - start_ns) / 1e6
+    payload: dict[str, Any] = {"section": section, "duration_ms": duration_ms}
+    if stage is not None:
+        payload["stage"] = stage
+    emit_or_buffer(payload)
 
 
 @dataclass

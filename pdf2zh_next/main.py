@@ -16,6 +16,7 @@ from pdf2zh_next.config import ConfigManager
 from pdf2zh_next.high_level import do_translate_file_async
 from pdf2zh_next.utils.profiler import PerformanceTracer
 from pdf2zh_next.utils.profiler import set_global_tracer
+from pdf2zh_next.utils.profiler import set_process_start_time_ns
 
 __version__ = "2.6.4"
 
@@ -51,6 +52,13 @@ async def main() -> int:
     from rich.logging import RichHandler
 
     logging.basicConfig(level=logging.INFO, handlers=[RichHandler()])
+
+    # record process start time for later delta measurements
+    try:
+        import time as _t
+        set_process_start_time_ns(_t.perf_counter_ns())
+    except Exception:
+        pass
 
     # measure initialize_config
     t_init_tracer = PerformanceTracer(enabled=False)

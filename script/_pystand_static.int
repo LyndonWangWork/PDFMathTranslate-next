@@ -4,6 +4,7 @@ import os
 import babeldoc.assets.assets
 import time
 from pdf2zh_next.utils.profiler import PerformanceTracer
+from pdf2zh_next.utils.profiler import set_process_start_time_ns, emit_startup_timing
 import pathlib
 import asyncio
 import multiprocessing
@@ -16,28 +17,40 @@ if len(sys.argv) == 1:
 multiprocessing.set_executable(os.path.join(os.path.dirname(__file__), 'runtime', 'pythonw.exe'))
 
 files = os.listdir(os.path.dirname(__file__))
-_start_ns = time.perf_counter_ns()
+# record earliest process start to support measuring to first offline assets log
+try:
+    set_process_start_time_ns(time.perf_counter_ns())
+except Exception:
+    pass
 for file in files:
     if file.endswith(".zip") and file.startswith("offline_assets_"):
         print('find offline_assets_zip file: ', file, ' try restore...')
         _found_ns = time.perf_counter_ns()
         try:
+            # measure from startup to first find log
+            from pdf2zh_next.utils.profiler import get_process_start_time_ns
+            t0 = get_process_start_time_ns()
+            if t0 is not None:
+                emit_startup_timing(
+                    section="startup_offline_assets_find",
+                    start_ns=t0,
+                    end_ns=_found_ns,
+                    stage="启动到发现离线资源包",
+                )
+        except Exception:
+            pass
+        try:
             babeldoc.assets.assets.restore_offline_assets_package(pathlib.Path(os.path.dirname(__file__)))
         finally:
             _done_ns = time.perf_counter_ns()
-            # Best effort JSONL profiling if global tracer exists
+            # record restore duration
             try:
-                from pdf2zh_next.utils.profiler import get_global_tracer
-                tracer = get_global_tracer()
-                if tracer and tracer.enabled:
-                    tracer.emit({
-                        "section": "startup_offline_assets_find",
-                        "duration_ms": (_found_ns - _start_ns) / 1e6,
-                    })
-                    tracer.emit({
-                        "section": "startup_offline_assets_restore",
-                        "duration_ms": (_done_ns - _found_ns) / 1e6,
-                    })
+                emit_startup_timing(
+                    section="startup_offline_assets_restore",
+                    start_ns=_found_ns,
+                    end_ns=_done_ns,
+                    stage="离线资源包恢复",
+                )
             except Exception:
                 pass
 
