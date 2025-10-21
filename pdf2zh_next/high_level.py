@@ -7,7 +7,9 @@ import multiprocessing.queues
 import queue
 import threading
 import traceback
+import time
 from collections.abc import AsyncGenerator
+from contextlib import nullcontext
 from functools import partial
 from logging.handlers import QueueHandler
 from pathlib import Path
@@ -24,6 +26,7 @@ from rich.logging import RichHandler
 from pdf2zh_next.config.model import SettingsModel
 from pdf2zh_next.translator import get_translator
 from pdf2zh_next.utils import asynchronize
+from pdf2zh_next.utils.profiler import get_global_tracer
 
 
 # Custom exception classes for structured error handling
@@ -175,7 +178,39 @@ def _translate_wrapper(
 
         # Run the async translation in the subprocess's event loop
         try:
-            asyncio.run(translate_wrapper_async())
+            # optional cProfile support
+            if getattr(settings.basic, "cprofile", False):
+                import cProfile
+                import os
+                import pstats
+                from pathlib import Path as _Path
+
+                prof = cProfile.Profile()
+                prof.enable()
+                try:
+                    asyncio.run(translate_wrapper_async())
+                finally:
+                    prof.disable()
+                    out_dir = (
+                        _Path(settings.basic.cprofile_dir)
+                        if settings.basic.cprofile_dir
+                        else _Path(".perf")
+                    )
+                    out_dir.mkdir(parents=True, exist_ok=True)
+                    out_path = out_dir / f"cprofile-{file.stem}-{os.getpid()}.prof"
+                    try:
+                        prof.dump_stats(out_path.as_posix())
+                    except Exception:
+                        logger.warning("Failed to dump cProfile stats", exc_info=True)
+                    topn = getattr(settings.basic, "cprofile_topn", 0) or 0
+                    if topn > 0:
+                        try:
+                            ps = pstats.Stats(prof).sort_stats("cumulative")
+                            ps.print_stats(int(topn))
+                        except Exception:
+                            logger.warning("Failed to print cProfile stats", exc_info=True)
+            else:
+                asyncio.run(translate_wrapper_async())
         except Exception as e:
             # Capture errors that might occur outside the async context
             tb_str = traceback.format_exc()
@@ -520,12 +555,63 @@ async def do_translate_async_stream(
     if settings.basic.debug:
         babeldoc_config = create_babeldoc_config(settings, file)
         logger.debug("debug mode, translate in main process")
-        translate_func = partial(babeldoc_translate, translation_config=babeldoc_config)
+        # when debug, also honor cProfile flag (auto-enabled in main when debug)
+        if getattr(settings.basic, "cprofile", False):
+            import cProfile
+            import pstats
+            import io
+
+            async def _profiled_debug_translate():
+                pr = cProfile.Profile()
+                pr.enable()
+                try:
+                    async for ev in babeldoc_translate(babeldoc_config):
+                        yield ev
+                finally:
+                    pr.disable()
+                    # print topN to console (no dump file in debug-main path)
+                    topn = getattr(settings.basic, "cprofile_topn", 0) or 0
+                    if topn > 0:
+                        try:
+                            s = io.StringIO()
+                            ps = pstats.Stats(pr, stream=s).sort_stats("cumulative")
+                            ps.print_stats(int(topn))
+                            logger.info("cProfile (debug main):\n" + s.getvalue())
+                        except Exception:
+                            logger.debug("print_stats failed", exc_info=True)
+
+            translate_func = _profiled_debug_translate
+        else:
+            translate_func = partial(babeldoc_translate, translation_config=babeldoc_config)
     else:
         logger.info("translate in subprocess")
 
+    tracer = get_global_tracer()
+    stage_t0: dict[str, float] = {}
     try:
         async for event in translate_func():
+            # stage timing based on progress_start/progress_end
+            if tracer and tracer.enabled:
+                try:
+                    if event.get("type") == "progress_start":
+                        stage = str(event.get("stage", "unknown"))
+                        stage_t0[stage] = time.perf_counter_ns()
+                    elif event.get("type") == "progress_end":
+                        stage = str(event.get("stage", "unknown"))
+                        t0 = stage_t0.pop(stage, None)
+                        if t0 is not None:
+                            dt_ms = (time.perf_counter_ns() - t0) / 1e6
+                            tracer.emit(
+                                {
+                                    "section": "stage",
+                                    "stage": stage,
+                                    "file": str(file),
+                                    "duration_ms": dt_ms,
+                                }
+                            )
+                except Exception:
+                    logger.debug("stage profiling failed", exc_info=True)
+
             yield event
             if settings.basic.debug:
                 logger.debug(event)
@@ -572,47 +658,52 @@ async def do_translate_file_async(
 
     error_count = 0
 
+    tracer = get_global_tracer()
     for file in input_files:
         logger.info(f"translate file: {file}")
         # 开始翻译
         with progress_context:
-            try:
-                async for event in do_translate_async_stream(settings, file):
-                    progress_handler(event)
-                    if settings.basic.debug:
-                        logger.debug(event)
-                    if event["type"] == "finish":
-                        result = event["translate_result"]
-                        logger.info("Translation Result:")
-                        logger.info(f"  Original PDF: {result.original_pdf_path}")
-                        logger.info(f"  Time Cost: {result.total_seconds:.2f}s")
-                        logger.info(f"  Mono PDF: {result.mono_pdf_path or 'None'}")
-                        logger.info(f"  Dual PDF: {result.dual_pdf_path or 'None'}")
-                        break
-                    if event["type"] == "error":
-                        error_msg = event.get("error", "Unknown error")
-                        error_type = event.get("error_type", "UnknownError")
-                        details = event.get("details", "")
+            # per-file profiling section
+            ctx_mgr = tracer.section("translate_file", file=str(file)) if (tracer and tracer.enabled) else None
+            _ctx = ctx_mgr if ctx_mgr else nullcontext()
+            with _ctx:
+                try:
+                    async for event in do_translate_async_stream(settings, file):
+                        progress_handler(event)
+                        if settings.basic.debug:
+                            logger.debug(event)
+                        if event["type"] == "finish":
+                            result = event["translate_result"]
+                            logger.info("Translation Result:")
+                            logger.info(f"  Original PDF: {result.original_pdf_path}")
+                            logger.info(f"  Time Cost: {result.total_seconds:.2f}s")
+                            logger.info(f"  Mono PDF: {result.mono_pdf_path or 'None'}")
+                            logger.info(f"  Dual PDF: {result.dual_pdf_path or 'None'}")
+                            break
+                        if event["type"] == "error":
+                            error_msg = event.get("error", "Unknown error")
+                            error_type = event.get("error_type", "UnknownError")
+                            details = event.get("details", "")
 
-                        logger.error(f"Error translating file {file}: {error_msg}")
-                        logger.error(f"Error type: {error_type}")
-                        if details:
-                            logger.error(f"Error details: {details}")
+                            logger.error(f"Error translating file {file}: {error_msg}")
+                            logger.error(f"Error type: {error_type}")
+                            if details:
+                                logger.error(f"Error details: {details}")
 
-                        error_count += 1
-                        if not ignore_error:
-                            raise RuntimeError(f"Translation error: {error_msg}")
-                        break
-            except TranslationError as e:
-                # Already logged in do_translate_async_stream
-                error_count += 1
-                if not ignore_error:
-                    raise
-            except Exception as e:
-                logger.error(f"Error translating file {file}: {e}")
-                error_count += 1
-                if not ignore_error:
-                    raise
+                            error_count += 1
+                            if not ignore_error:
+                                raise RuntimeError(f"Translation error: {error_msg}")
+                            break
+                except TranslationError as e:
+                    # Already logged in do_translate_async_stream
+                    error_count += 1
+                    if not ignore_error:
+                        raise
+                except Exception as e:
+                    logger.error(f"Error translating file {file}: {e}")
+                    error_count += 1
+                    if not ignore_error:
+                        raise
 
     return error_count
 

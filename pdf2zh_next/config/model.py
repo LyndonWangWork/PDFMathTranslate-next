@@ -52,6 +52,22 @@ class BasicSettings(BaseModel):
         description="Restore offline assets package from the specified file",
     )
     version: bool = Field(default=False, description="Show version then exit")
+    # Performance profiling settings
+    profile: bool = Field(
+        default=False, description="Enable JSONL performance profiling for CLI"
+    )
+    profile_file: str | None = Field(
+        default=None, description="Path to JSONL profiling output file"
+    )
+    cprofile: bool = Field(
+        default=False, description="Enable cProfile during translation execution"
+    )
+    cprofile_dir: str | None = Field(
+        default=None, description="Directory to write cProfile .prof files"
+    )
+    cprofile_topn: int = Field(
+        default=30, description="Print Top-N cProfile stats (0 to disable)"
+    )
 
 
 class GUISettings(BaseModel):

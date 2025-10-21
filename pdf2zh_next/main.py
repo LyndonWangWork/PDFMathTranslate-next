@@ -13,6 +13,8 @@ from pathlib import Path
 
 from pdf2zh_next.config import ConfigManager
 from pdf2zh_next.high_level import do_translate_file_async
+from pdf2zh_next.utils.profiler import PerformanceTracer, set_global_tracer
+from datetime import datetime
 
 __version__ = "2.6.4"
 
@@ -49,7 +51,10 @@ async def main() -> int:
 
     logging.basicConfig(level=logging.INFO, handlers=[RichHandler()])
 
-    settings = ConfigManager().initialize_config()
+    # measure initialize_config
+    t_init_tracer = PerformanceTracer(enabled=False)
+    with t_init_tracer.section("initialize_config"):
+        settings = ConfigManager().initialize_config()
     if settings.basic.debug:
         logging.getLogger().setLevel(logging.DEBUG)
 
@@ -93,8 +98,39 @@ async def main() -> int:
         )
         return 0
 
+    # auto-enable profiling in debug mode
+    if settings.basic.debug:
+        if not getattr(settings.basic, "profile", False):
+            settings.basic.profile = True
+        if not getattr(settings.basic, "profile_file", None):
+            default_profile_dir = Path(".perf")
+            default_profile_dir.mkdir(parents=True, exist_ok=True)
+            settings.basic.profile_file = (
+                default_profile_dir
+                / f"profile-{datetime.now().strftime('%Y%m%d-%H%M%S')}.jsonl"
+            ).as_posix()
+        if not getattr(settings.basic, "cprofile", False):
+            settings.basic.cprofile = True
+        if not getattr(settings.basic, "cprofile_dir", None):
+            settings.basic.cprofile_dir = Path(".perf").as_posix()
+
+    # setup tracer if enabled
+    tracer_enabled = bool(getattr(settings.basic, "profile", False))
+    profile_file = getattr(settings.basic, "profile_file", None)
+    tracer = PerformanceTracer(
+        enabled=tracer_enabled,
+        output=Path(profile_file) if (tracer_enabled and profile_file) else None,
+    )
+    set_global_tracer(tracer)
+
     assert len(settings.basic.input_files) >= 1, "At least one input file is required"
-    await do_translate_file_async(settings, ignore_error=True)
+    with tracer.section("cli_run_total"):
+        await do_translate_file_async(settings, ignore_error=True)
+
+    # print summary if enabled
+    if tracer.enabled:
+        for line in tracer.summary_lines():
+            logger.info(f"[perf] {line}")
     return 0
 
 
