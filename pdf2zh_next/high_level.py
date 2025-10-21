@@ -108,6 +108,30 @@ class SubprocessCrashError(TranslationError):
 
 logger = logging.getLogger(__name__)
 
+_STAGE_ZH_MAP = {
+    "layout": "版面分析",
+    "doclayout": "版面分析",
+    "ocr": "OCR识别",
+    "translate": "翻译",
+    "render": "渲染",
+    "split": "分段",
+    "merge": "合并",
+    "cache": "缓存",
+    "table": "表格处理",
+    "table_detection": "表格检测",
+    "glossary": "术语",
+    "glossary_extract": "术语抽取",
+    "prepare": "准备",
+    "postprocess": "后处理",
+}
+
+def _stage_to_zh(stage: str) -> str:
+    try:
+        key = str(stage).lower()
+    except Exception:
+        return str(stage)
+    return _STAGE_ZH_MAP.get(key, stage)
+
 
 def _translate_wrapper(
     settings: SettingsModel,
@@ -607,7 +631,7 @@ async def do_translate_async_stream(
                             tracer.emit(
                                 {
                                     "section": "stage",
-                                    "stage": stage,
+                                    "stage": _stage_to_zh(stage),
                                     "file": str(file),
                                     "duration_ms": dt_ms,
                                 }
