@@ -584,7 +584,9 @@ async def do_translate_async_stream(
         if getattr(settings.basic, "cprofile", False):
             import cProfile
             import io
+            import os
             import pstats
+            from pathlib import Path as _Path
 
             async def _profiled_debug_translate():
                 pr = cProfile.Profile()
@@ -594,6 +596,18 @@ async def do_translate_async_stream(
                         yield ev
                 finally:
                     pr.disable()
+                    # dump .prof file to cprofile_dir (or ./.perf) in debug path
+                    try:
+                        out_dir = (
+                            _Path(settings.basic.cprofile_dir)
+                            if settings.basic.cprofile_dir
+                            else _Path(".perf")
+                        )
+                        out_dir.mkdir(parents=True, exist_ok=True)
+                        out_path = out_dir / f"cprofile-{_Path(file).stem}-{os.getpid()}.prof"
+                        pr.dump_stats(out_path.as_posix())
+                    except Exception:
+                        logger.debug("dump_stats failed (debug main)", exc_info=True)
                     # print topN to console (no dump file in debug-main path)
                     topn = getattr(settings.basic, "cprofile_topn", 0) or 0
                     if topn > 0:

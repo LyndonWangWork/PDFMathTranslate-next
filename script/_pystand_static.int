@@ -2,6 +2,8 @@ import sys
 import pdf2zh_next.main
 import os
 import babeldoc.assets.assets
+import time
+from pdf2zh_next.utils.profiler import PerformanceTracer
 import pathlib
 import asyncio
 import multiprocessing
@@ -14,10 +16,30 @@ if len(sys.argv) == 1:
 multiprocessing.set_executable(os.path.join(os.path.dirname(__file__), 'runtime', 'pythonw.exe'))
 
 files = os.listdir(os.path.dirname(__file__))
+_start_ns = time.perf_counter_ns()
 for file in files:
     if file.endswith(".zip") and file.startswith("offline_assets_"):
         print('find offline_assets_zip file: ', file, ' try restore...')
-        babeldoc.assets.assets.restore_offline_assets_package(pathlib.Path(os.path.dirname(__file__)))
+        _found_ns = time.perf_counter_ns()
+        try:
+            babeldoc.assets.assets.restore_offline_assets_package(pathlib.Path(os.path.dirname(__file__)))
+        finally:
+            _done_ns = time.perf_counter_ns()
+            # Best effort JSONL profiling if global tracer exists
+            try:
+                from pdf2zh_next.utils.profiler import get_global_tracer
+                tracer = get_global_tracer()
+                if tracer and tracer.enabled:
+                    tracer.emit({
+                        "section": "startup_offline_assets_find",
+                        "duration_ms": (_found_ns - _start_ns) / 1e6,
+                    })
+                    tracer.emit({
+                        "section": "startup_offline_assets_restore",
+                        "duration_ms": (_done_ns - _found_ns) / 1e6,
+                    })
+            except Exception:
+                pass
 
 try:
     code = asyncio.run(pdf2zh_next.main.main())

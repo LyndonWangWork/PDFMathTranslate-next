@@ -52,10 +52,21 @@ class PerformanceTracer:
         if not self.enabled:
             return
 
+        # enrich duration text if present
+        duration_ms = obj.get("duration_ms")
+        duration_text = None
+        if isinstance(duration_ms, (int, float)):
+            total_seconds = float(duration_ms) / 1000.0
+            minutes = int(total_seconds // 60)
+            seconds = total_seconds - minutes * 60
+            duration_text = f"{minutes}分{seconds:.1f}秒"
+
         payload = {
             "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime()),
             **obj,
         }
+        if duration_text is not None:
+            payload["duration_text"] = duration_text
         line = json.dumps(payload, ensure_ascii=False)
         if self.output is not None:
             self.output.parent.mkdir(parents=True, exist_ok=True)
