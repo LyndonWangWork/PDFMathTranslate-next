@@ -58,11 +58,19 @@ def emit_or_buffer(obj: dict[str, Any]) -> None:
         _early_events.append(obj)
 
 
-def emit_startup_timing(section: str, start_ns: int, end_ns: int, stage: str | None = None) -> None:
+def emit_startup_timing(
+    section: str,
+    start_ns: int,
+    end_ns: int,
+    stage: str | None = None,
+    **extra: Any,
+) -> None:
     duration_ms = (end_ns - start_ns) / 1e6
     payload: dict[str, Any] = {"section": section, "duration_ms": duration_ms}
     if stage is not None:
         payload["stage"] = stage
+    if extra:
+        payload.update(extra)
     emit_or_buffer(payload)
 
 
