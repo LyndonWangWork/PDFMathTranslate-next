@@ -53,6 +53,11 @@ for file in files:
                 )
             except Exception:
                 pass
+            # mark env for downstream processes to know offline assets were restored
+            try:
+                os.environ["PDF2ZH_OFFLINE_ASSETS_RESTORED"] = "1"
+            except Exception:
+                pass
 
 try:
     code = asyncio.run(pdf2zh_next.main.main())

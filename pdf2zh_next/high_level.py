@@ -689,6 +689,73 @@ async def do_translate_async_stream(
                 except Exception:
                     logger.debug("stage profiling failed", exc_info=True)
 
+            # structured logs to explain online font download/add fonts context
+            try:
+                if event.get("type") in ("progress_start", "progress_end"):
+                    stage_raw = str(event.get("stage", ""))
+                    stage = _normalize_stage_key(stage_raw)
+                    if stage == "download_assets":
+                        # Log why assets are being downloaded (fonts/models), include context
+                        import platform
+                        import os as _os
+                        from importlib.metadata import version as _pkg_version
+
+                        ctx = {
+                            "type": event.get("type"),
+                            "stage": stage_raw,
+                            "file": str(file),
+                            "lang_in": getattr(settings.translation, "lang_in", None),
+                            "lang_out": getattr(settings.translation, "lang_out", None),
+                            "primary_font_family": getattr(
+                                settings.translation, "primary_font_family", None
+                            ),
+                            "skip_clean": getattr(settings.pdf, "skip_clean", None),
+                            "pyinstaller_frozen": bool(getattr(sys, "frozen", False)),
+                            "platform": platform.platform(),
+                            "python": platform.python_version(),
+                            "babeldoc_version": None,
+                            "offline_assets_restored_env": _os.environ.get(
+                                "PDF2ZH_OFFLINE_ASSETS_RESTORED", "0"
+                            ),
+                        }
+                        try:
+                            ctx["babeldoc_version"] = _pkg_version("babeldoc")
+                        except Exception:
+                            pass
+                        # Include any hint fields from event if present (library-defined)
+                        for k in ("reason", "missing", "name", "detail", "asset_type"):
+                            if k in event:
+                                ctx[k] = event[k]
+                        logger.info("assets_download_stage_context: %s", ctx)
+
+                    if stage == "add_fonts":
+                        # Log font adding context
+                        info = {
+                            "type": event.get("type"),
+                            "stage": stage_raw,
+                            "file": str(file),
+                            "primary_font_family": getattr(
+                                settings.translation, "primary_font_family", None
+                            ),
+                            "lang_in": getattr(settings.translation, "lang_in", None),
+                            "lang_out": getattr(settings.translation, "lang_out", None),
+                        }
+                        # Include details from event
+                        for k in (
+                            "font_family",
+                            "font_file",
+                            "fallbacks",
+                            "detail",
+                            "fonts",
+                            "selected",
+                            "missing",
+                        ):
+                            if k in event:
+                                info[k] = event[k]
+                        logger.info("add_fonts_stage_context: %s", info)
+            except Exception:
+                logger.debug("enhanced stage logging failed", exc_info=True)
+
             yield event
             if settings.basic.debug:
                 logger.debug(event)
