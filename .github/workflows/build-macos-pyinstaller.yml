@@ -84,7 +84,7 @@ jobs:
           already = any('logger.info(' in l and 'hash_.hexdigest()' in l for l in lines)
           out = []
           inside = False
-          indent = ''
+          func_indent = ''  # base indent for function body (not used for insertion)
           inserted = False
           for line in lines:
               out.append(line)
@@ -93,14 +93,15 @@ jobs:
                       inside = True
                   continue
               # establish baseline indent for the function body
-              if indent == '' and line.strip():
-                  indent = line[:len(line) - len(line.lstrip())]
+              if func_indent == '' and line.strip():
+                  func_indent = line[:len(line) - len(line.lstrip())]
               if not inserted and line.lstrip().startswith('return ') and not already:
+                  return_indent = line[:len(line) - len(line.lstrip())]
                   log_lines = [
-                      f"{indent}try:\n",
-                      f"{indent}    logger.info('verify_file: hexdigest=%s, sha3_256=%s, equal=%s', hash_.hexdigest(), sha3_256, (hash_.hexdigest() == sha3_256))\n",
-                      f"{indent}except Exception:\n",
-                      f"{indent}    pass\n",
+                      f"{return_indent}try:\n",
+                      f"{return_indent}    logger.info('verify_file: hexdigest=%s, sha3_256=%s, equal=%s', hash_.hexdigest(), sha3_256, (hash_.hexdigest() == sha3_256))\n",
+                      f"{return_indent}except Exception:\n",
+                      f"{return_indent}    pass\n",
                   ]
                   out[-1:-1] = log_lines
                   inserted = True
