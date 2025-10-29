@@ -71,7 +71,7 @@ async def main() -> int:
     t0 = time.perf_counter()
     with t_init_tracer.section("initialize_config"):
         settings = ConfigManager().initialize_config()
-    logger.debug("initialize_config 耗时: %.1f ms", (time.perf_counter() - t0) * 1000.0)
+    logger.debug("initialize_config: %.1f ms", (time.perf_counter() - t0) * 1000.0)
 
 
 
