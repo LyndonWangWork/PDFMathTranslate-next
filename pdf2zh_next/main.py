@@ -9,6 +9,7 @@ import asyncio
 import logging
 import os
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -17,7 +18,6 @@ from pdf2zh_next.high_level import do_translate_file_async
 from pdf2zh_next.utils.profiler import PerformanceTracer
 from pdf2zh_next.utils.profiler import set_global_tracer
 from pdf2zh_next.utils.profiler import set_process_start_time_ns
-from pdf2zh_next.utils.profiler import emit_startup_timing
 
 __version__ = "2.6.4"
 
@@ -55,20 +55,41 @@ async def main() -> int:
     logging.basicConfig(level=logging.INFO, handlers=[RichHandler()])
  
     logging.getLogger().setLevel(logging.DEBUG)
+
+
     
-    if not getattr(settings.basic, "profile", False):
-        settings.basic.profile = True
-    if not getattr(settings.basic, "profile_file", None):
-        default_profile_dir = Path(".perf")
-        default_profile_dir.mkdir(parents=True, exist_ok=True)
-        settings.basic.profile_file = (
-            default_profile_dir
-            / f"profile-{datetime.now().strftime('%Y%m%d-%H%M%S')}.jsonl"
-        ).as_posix()
-    if not getattr(settings.basic, "cprofile", False):
-        settings.basic.cprofile = True
-    if not getattr(settings.basic, "cprofile_dir", None):
-        settings.basic.cprofile_dir = Path(".perf").as_posix()
+            
+    # record process start time for later delta measurements
+    try:
+        import time as _t
+        set_process_start_time_ns(_t.perf_counter_ns())
+    except Exception:
+        pass
+
+    # measure initialize_config
+    t_init_tracer = PerformanceTracer(enabled=False)
+    t0 = time.perf_counter()
+    with t_init_tracer.section("initialize_config"):
+        settings = ConfigManager().initialize_config()
+    logger.debug("initialize_config 耗时: %.1f ms", (time.perf_counter() - t0) * 1000.0)
+
+
+
+    # auto-enable profiling in debug mode
+    if settings.basic.debug:
+        if not getattr(settings.basic, "profile", False):
+            settings.basic.profile = True
+        if not getattr(settings.basic, "profile_file", None):
+            default_profile_dir = Path(".perf")
+            default_profile_dir.mkdir(parents=True, exist_ok=True)
+            settings.basic.profile_file = (
+                default_profile_dir
+                / f"profile-{datetime.now().strftime('%Y%m%d-%H%M%S')}.jsonl"
+            ).as_posix()
+        if not getattr(settings.basic, "cprofile", False):
+            settings.basic.cprofile = True
+        if not getattr(settings.basic, "cprofile_dir", None):
+            settings.basic.cprofile_dir = Path(".perf").as_posix()
 
     # setup tracer if enabled
     tracer_enabled = bool(getattr(settings.basic, "profile", False))
@@ -79,21 +100,7 @@ async def main() -> int:
     )
     set_global_tracer(tracer)
 
-
-    # record process start time for later delta measurements
-    try:
-        import time as _t
-        set_process_start_time_ns(_t.perf_counter_ns())
-    except Exception:
-        pass
-
-    # measure initialize_config via early tracer buffering
-    import time as _t
-    _t0 = _t.perf_counter_ns()
-    settings = ConfigManager().initialize_config()
-    _t1 = _t.perf_counter_ns()
-    emit_startup_timing("initialize_config", _t0, _t1)
-
+    
     # disable httpx, openai, httpcore, http11 logs
     logging.getLogger("httpx").setLevel("CRITICAL")
     logging.getLogger("httpx").propagate = False
