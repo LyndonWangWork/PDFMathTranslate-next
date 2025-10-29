@@ -53,23 +53,22 @@ async def main() -> int:
     from rich.logging import RichHandler
 
     logging.basicConfig(level=logging.INFO, handlers=[RichHandler()])
-
-    if settings.basic.debug:
-        logging.getLogger().setLevel(logging.DEBUG)
-        
-        if not getattr(settings.basic, "profile", False):
-            settings.basic.profile = True
-        if not getattr(settings.basic, "profile_file", None):
-            default_profile_dir = Path(".perf")
-            default_profile_dir.mkdir(parents=True, exist_ok=True)
-            settings.basic.profile_file = (
-                default_profile_dir
-                / f"profile-{datetime.now().strftime('%Y%m%d-%H%M%S')}.jsonl"
-            ).as_posix()
-        if not getattr(settings.basic, "cprofile", False):
-            settings.basic.cprofile = True
-        if not getattr(settings.basic, "cprofile_dir", None):
-            settings.basic.cprofile_dir = Path(".perf").as_posix()
+ 
+    logging.getLogger().setLevel(logging.DEBUG)
+    
+    if not getattr(settings.basic, "profile", False):
+        settings.basic.profile = True
+    if not getattr(settings.basic, "profile_file", None):
+        default_profile_dir = Path(".perf")
+        default_profile_dir.mkdir(parents=True, exist_ok=True)
+        settings.basic.profile_file = (
+            default_profile_dir
+            / f"profile-{datetime.now().strftime('%Y%m%d-%H%M%S')}.jsonl"
+        ).as_posix()
+    if not getattr(settings.basic, "cprofile", False):
+        settings.basic.cprofile = True
+    if not getattr(settings.basic, "cprofile_dir", None):
+        settings.basic.cprofile_dir = Path(".perf").as_posix()
 
     # setup tracer if enabled
     tracer_enabled = bool(getattr(settings.basic, "profile", False))
