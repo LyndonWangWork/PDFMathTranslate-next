@@ -62,6 +62,53 @@ jobs:
           python -m pip install -v -U -c constraints.txt tiktoken
           python -m pip install -v -U -c constraints.txt --only-binary=:all: --no-binary=peewee,untokenize .
 
+      - name: Inject debug logging into BabelDOC verify_file (${{ matrix.arch }})
+        run: |
+          source .venv/bin/activate
+          python - <<'PY'
+          import inspect, os
+          try:
+              import babeldoc
+          except Exception as e:
+              print("babeldoc import failed:", e)
+              raise
+          pkg_dir = os.path.dirname(inspect.getfile(babeldoc))
+          target = os.path.join(pkg_dir, 'assets', 'assets.py')
+          print("Patching:", target)
+          try:
+              with open(target, 'r', encoding='utf-8') as f:
+                  lines = f.readlines()
+          except FileNotFoundError:
+              print("assets.py not found at", target)
+              raise
+          already = any('logger.info(' in l and 'hash_.hexdigest()' in l for l in lines)
+          out = []
+          inside = False
+          indent = ''
+          inserted = False
+          for line in lines:
+              out.append(line)
+              if not inside:
+                  if line.lstrip().startswith('def verify_file'):
+                      inside = True
+                  continue
+              # establish baseline indent for the function body
+              if indent == '' and line.strip():
+                  indent = line[:len(line) - len(line.lstrip())]
+              if not inserted and line.lstrip().startswith('return ') and not already:
+                  log_lines = [
+                      f"{indent}try:\n",
+                      f"{indent}    logger.info('verify_file: hexdigest=%s, sha3_256=%s, equal=%s', hash_.hexdigest(), sha3_256, (hash_.hexdigest() == sha3_256))\n",
+                      f"{indent}except Exception:\n",
+                      f"{indent}    pass\n",
+                  ]
+                  out[-1:-1] = log_lines
+                  inserted = True
+          with open(target, 'w', encoding='utf-8') as f:
+              f.writelines(out)
+          print("Inserted:", inserted, "Already present:", already)
+          PY
+
       - name: Diagnose tiktoken plugins (${{ matrix.arch }})
         run: |
           source .venv/bin/activate
