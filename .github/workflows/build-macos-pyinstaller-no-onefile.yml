@@ -82,32 +82,43 @@ jobs:
               print("assets.py not found at", target)
               raise
           already = any('logger.info(' in l and 'hash_.hexdigest()' in l for l in lines)
-          out = []
-          inside = False
-          func_indent = ''  # base indent for function body (not used for insertion)
+          # 定位 verify_file 函数，并记录函数内“最后一个 return ”的位置与缩进
+          def_idx = None
+          def_indent = None
+          for i, line in enumerate(lines):
+              if line.lstrip().startswith('def verify_file'):
+                  def_idx = i
+                  def_indent = len(line) - len(line.lstrip())
+                  break
+          if def_idx is None:
+              print('verify_file not found')
+              raise SystemExit(1)
+
+          last_return_idx = None
+          return_indent = ''
+          for j in range(def_idx + 1, len(lines)):
+              l = lines[j]
+              # 函数体结束：遇到非空行且缩进回退到函数定义缩进及其左侧
+              if l.strip() and (len(l) - len(l.lstrip())) <= def_indent:
+                  break
+              if l.lstrip().startswith('return '):
+                  last_return_idx = j
+                  return_indent = l[:len(l) - len(l.lstrip())]
+
+          out = list(lines)
           inserted = False
-          for line in lines:
-              out.append(line)
-              if not inside:
-                  if line.lstrip().startswith('def verify_file'):
-                      inside = True
-                  continue
-              # establish baseline indent for the function body
-              if func_indent == '' and line.strip():
-                  func_indent = line[:len(line) - len(line.lstrip())]
-              if not inserted and line.lstrip().startswith('return ') and not already:
-                  return_indent = line[:len(line) - len(line.lstrip())]
-                  log_lines = [
-                      f"{return_indent}try:\n",
-                      f"{return_indent}    logger.info('verify_file: hexdigest=%s, sha3_256=%s, equal=%s', hash_.hexdigest(), sha3_256, (hash_.hexdigest() == sha3_256))\n",
-                      f"{return_indent}except Exception:\n",
-                      f"{return_indent}    pass\n",
-                  ]
-                  out[-1:-1] = log_lines
-                  inserted = True
+          if not already and last_return_idx is not None:
+              log_lines = [
+                  f"{return_indent}try:\n",
+                  f"{return_indent}    logger.info('verify_file: hexdigest=%s, sha3_256=%s, equal=%s', hash_.hexdigest(), sha3_256, (hash_.hexdigest() == sha3_256))\n",
+                  f"{return_indent}except Exception:\n",
+                  f"{return_indent}    pass\n",
+              ]
+              out[last_return_idx:last_return_idx] = log_lines
+              inserted = True
           with open(target, 'w', encoding='utf-8') as f:
               f.writelines(out)
-          print("Inserted:", inserted, "Already present:", already)
+          print('Inserted:', inserted, 'Already present:', already)
           PY
 
       - name: Diagnose tiktoken plugins (${{ matrix.arch }})
