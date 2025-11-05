@@ -114,6 +114,9 @@ def cli():
         import tiktoken_ext.openai_public  # noqa: F401
     except Exception:
         pass
+    
+    if len(sys.argv) == 1:
+        sys.argv.append("--gui")  # 无参数时自动添加 -i 参数
 
     sys.exit(asyncio.run(main()))
 
