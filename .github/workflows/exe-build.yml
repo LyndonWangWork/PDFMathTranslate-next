@@ -1,14 +1,21 @@
 name: windows exe Release Workflow
 
 on:
-  workflow_dispatch:
-    inputs:
-      release_version:
-        description: 'Release Version (e.g., v1.0.0)'
-        required: true
-        type: string
-  # push:
-    # debug purpose
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch: {}
+
+# on:
+#   workflow_dispatch:
+#     inputs:
+#       release_version:
+#         description: 'Release Version (e.g., v1.0.0)'
+#         required: true
+#         type: string
+#   # push:
+#     # debug purpose
 env:
   WIN_EXE_PYTHON_VERSION: 3.13.3
 jobs:
@@ -131,11 +138,11 @@ jobs:
       
       - name: Test - Translate a PDF file with plain text only
         run: |
-          ./build/pdf2zh.exe ./test/file/translate.cli.plain.text.pdf -o ./test/file
+          ./build/pdf2zh.exe ./test/file/translate.cli.plain.text.pdf --output ./test/file
 
       - name: Test - Translate a PDF file figure
         run: |
-          ./build/pdf2zh.exe ./test/file/translate.cli.text.with.figure.pdf -o ./test/file
+          ./build/pdf2zh.exe ./test/file/translate.cli.text.with.figure.pdf --output ./test/file
 
       - name: Delete offline assets and cache
         shell: pwsh
@@ -161,7 +168,7 @@ jobs:
 
       - name: Test - Translate without offline assets
         run: |
-          ./build/pdf2zh.exe ./test/file/translate.cli.plain.text.pdf -o ./test/file
+          ./build/pdf2zh.exe ./test/file/translate.cli.plain.text.pdf --output ./test/file
           
       - name: Upload test results
         uses: actions/upload-artifact@v4
