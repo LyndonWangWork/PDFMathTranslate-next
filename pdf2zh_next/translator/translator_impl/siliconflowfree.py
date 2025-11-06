@@ -2,6 +2,9 @@ import logging
 import time
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import as_completed
+import json
+from pathlib import Path
+from datetime import datetime
 
 import httpx
 from pdf2zh_next.config.model import SettingsModel
@@ -31,6 +34,61 @@ AVAILABLE_SERVER_ENDPOINTS = [
 ]
 
 
+# Daily fastest-endpoint cache for siliconflowfree
+CACHE_FILE = Path.home() / ".cache" / "pdf2zh_next" / "fast_server.siliconflowfree.json"
+
+
+def get_cache_path():
+    p = CACHE_FILE
+    try:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        logger.debug(f"[fast-cache] ensure cache dir: {p.parent}")
+    except Exception as e:
+        logger.debug(f"[fast-cache] ensure dir failed: {e}")
+    logger.debug(f"[fast-cache] cache path: {p}")
+    return p
+
+
+def is_today(date_str: str) -> bool:
+    try:
+        today = datetime.now().strftime("%Y-%m-%d")
+        flag = today == date_str
+        logger.debug(f"[fast-cache] is_today? input={date_str} today={today} -> {flag}")
+        return flag
+    except Exception as e:
+        logger.debug(f"[fast-cache] is_today failed: {e}")
+        return False
+
+
+def load_cached_endpoint() -> dict | None:
+    p = get_cache_path()
+    try:
+        if not p.exists():
+            logger.debug("[fast-cache] cache not exists")
+            return None
+        raw = p.read_text(encoding="utf-8")
+        logger.debug(f"[fast-cache] raw cache: {raw}")
+        data = json.loads(raw)
+        if isinstance(data, dict) and "url" in data and "date" in data:
+            logger.debug(f"[fast-cache] parsed cache: url={data['url']} date={data['date']}")
+            return data
+        logger.debug("[fast-cache] invalid cache structure")
+    except Exception as e:
+        logger.debug(f"[fast-cache] load cache failed: {e}")
+    return None
+
+
+def save_cached_endpoint(url: str) -> None:
+    p = get_cache_path()
+    payload = {"url": url, "date": datetime.now().strftime("%Y-%m-%d")}
+    try:
+        logger.debug(f"[fast-cache] save -> path={p} payload={payload}")
+        p.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        logger.debug("[fast-cache] save ok")
+    except Exception as e:
+        logger.debug(f"[fast-cache] save failed: {e}")
+
+
 class SiliconFlowFreeTranslator(BaseTranslator):
     # https://github.com/openai/openai-python
     name = "siliconflowfree"
@@ -44,8 +102,25 @@ class SiliconFlowFreeTranslator(BaseTranslator):
         super().__init__(settings, rate_limiter)
         self.client = httpx.Client()
 
+        # Daily fastest server cache logic
         self.url = AVAILABLE_SERVER_ENDPOINTS[0]
-        self.get_fast_service()
+        logger.debug(f"[fast-cache] default url: {self.url}")
+        entry = load_cached_endpoint()
+        if entry and is_today(entry.get("date")):
+            cached_url = entry.get("url", self.url)
+            logger.debug(f"[fast-cache] use cached today: {cached_url}")
+            self.url = cached_url
+            if not self.check_server_status(self.url):
+                logger.debug("[fast-cache] cached url not available, speed test...")
+                self.get_fast_service()
+                logger.debug(f"[fast-cache] speed test selected: {self.url}")
+                save_cached_endpoint(self.url)
+        else:
+            logger.debug("[fast-cache] no today cache or invalid, speed test...")
+            self.get_fast_service()
+            logger.debug(f"[fast-cache] speed test selected: {self.url}")
+            save_cached_endpoint(self.url)
+
         self.fetch_setting_and_update()
 
     def fetch_setting_and_update(self):
