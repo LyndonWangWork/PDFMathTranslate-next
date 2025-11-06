@@ -135,13 +135,13 @@ jobs:
       - name: E2E test (${{ matrix.arch }}) - translate CLI samples
         run: |
           ./dist/pdf2zh --version
-          ./dist/pdf2zh ./test/file/translate.cli.plain.text.pdf --output ./test/file
-          ./dist/pdf2zh ./test/file/translate.cli.text.with.figure.pdf --output ./test/file
+          ./dist/pdf2zh ./test/file/translate.cli.plain.text.pdf --output ./test/file --debug
+          ./dist/pdf2zh ./test/file/translate.cli.text.with.figure.pdf --output ./test/file --debug
 
       - name: Clear cache and test again (${{ matrix.arch }})
         run: |
           rm -rf "$HOME/.cache/babeldoc" || true
-          ./dist/pdf2zh ./test/file/translate.cli.plain.text.pdf --output ./test/file
+          ./dist/pdf2zh ./test/file/translate.cli.plain.text.pdf --output ./test/file --debug
 
       - name: Get BabelDOC version (${{ matrix.arch }})
         id: get-babeldoc-version
